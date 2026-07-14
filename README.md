@@ -1,0 +1,2 @@
+# DDNS
+self DDNS server
