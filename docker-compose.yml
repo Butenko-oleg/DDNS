@@ -1,0 +1,76 @@
+services:
+
+  postgres:
+    image: postgres:16
+    container_name: ddns-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: ${DB_NAME:-powerdns}
+      POSTGRES_USER: ${DB_USER:-pdns}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+      # Only runs automatically on a completely empty data directory
+      # (first-ever start) — safe to add to an existing deployment.
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  powerdns:
+    image: powerdns/pdns-auth-49
+    container_name: ddns-powerdns
+    restart: unless-stopped
+
+    depends_on:
+      - postgres
+
+    volumes:
+      - ./powerdns/pdns.conf:/etc/powerdns/pdns.conf:ro
+
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      # NOTE: PowerDNS's HTTP API (8081) is intentionally NOT published here.
+      # ddns-api reaches it over the internal Docker network as
+      # http://powerdns:8081 — it never needs to be exposed to the host or
+      # the internet. If you need to browse it directly for debugging, bind
+      # it to localhost only: "127.0.0.1:8081:8081"
+
+
+  ddns-api:
+    build:
+      context: ./api
+
+    container_name: ddns-api
+
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:8000:8000"
+
+    depends_on:
+      - powerdns
+
+    volumes:
+      # Auth-failure log for fail2ban — stable host path regardless of
+      # container recreation. Must be writable by uid 1000 (the app runs
+      # as non-root inside the container): mkdir -p logs && chown 1000:1000 logs
+      - ./logs:/app/logs
+
+    environment:
+       ADMIN_USER: ${ADMIN_USER:-admin}
+       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-me}
+
+       DDNS_ZONE: ${DDNS_ZONE:-example.com}
+
+       PDNS_API_URL: http://powerdns:8081
+       PDNS_API_KEY: ${PDNS_API_KEY:-changeme}
+
+       DB_HOST: postgres
+       DB_NAME: ${DB_NAME:-powerdns}
+       DB_USER: ${DB_USER:-pdns}
+       DB_PASSWORD: ${DB_PASSWORD:-changeme}
+
+       # Set to "http" only for local testing without a TLS-terminating
+       # reverse proxy in front. Almost every real deployment wants https.
+       PUBLIC_SCHEME: ${PUBLIC_SCHEME:-https}

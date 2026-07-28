@@ -1,0 +1,39 @@
+# Copy this file to pdns.conf and fill in real values before first start:
+#   cp powerdns/pdns.conf.example powerdns/pdns.conf
+#
+# pdns.conf is a static config file — PowerDNS's official Docker image
+# doesn't read database credentials or the API key from the environment,
+# so the two secrets below have to match your .env file BY HAND. This
+# file itself is gitignored so your real secrets never get committed.
+
+launch=gpgsql
+
+gpgsql-host=postgres
+gpgsql-port=5432
+gpgsql-dbname=powerdns
+gpgsql-user=pdns
+# Must match DB_PASSWORD in your .env file.
+gpgsql-password=CHANGE_ME_MATCH_DB_PASSWORD_IN_ENV
+
+api=yes
+# Intentionally a plain api-key= line here, not sourced from an env var.
+# The official pdns-auth image's PDNS_AUTH_API_KEY mechanism looks cleaner
+# on paper, but it *also* sets webserver-password to the same value as a
+# side effect — which then requires HTTP Basic Auth on top of X-API-Key
+# for API access, breaking plain X-API-Key clients like ddns-api. Keep
+# this as a plain api-key= line instead.
+# Must match PDNS_API_KEY in your .env file.
+api-key=CHANGE_ME_MATCH_PDNS_API_KEY_IN_ENV
+
+webserver=yes
+webserver-address=0.0.0.0
+webserver-port=8081
+# Safe to leave wide open: this port is not published to the host or
+# the internet in docker-compose.yml, only reachable from other
+# containers on the same Docker network.
+webserver-allow-from=0.0.0.0/0
+
+local-address=0.0.0.0
+
+#daemon=no
+#guardian=no
