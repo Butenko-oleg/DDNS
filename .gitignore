@@ -1,0 +1,15 @@
+# Секреты и данные — никогда не в репозиторий
+.env
+powerdns/pdns.conf
+ns2/ns2.env
+
+# Состояние и служебные каталоги
+postgres/
+logs/
+backups/
+install-summary.txt
+
+# Мусор
+__pycache__/
+*.pyc
+*.bak*
