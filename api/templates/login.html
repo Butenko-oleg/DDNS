@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0e1420" id="meta-theme-color">
+<title>Вход · {{ zone }}</title>
+<script>
+  // Applied before first paint so there's no flash of the wrong theme.
+  (function(){
+    try {
+      var saved = localStorage.getItem('ddns_theme');
+      if (saved === 'light' || saved === 'dark') {
+        document.documentElement.setAttribute('data-theme', saved);
+      }
+    } catch (e) { /* localStorage unavailable — just uses the default theme */ }
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #0e1420;
+    --panel: #161d2e;
+    --border: #262f45;
+    --border-soft: #1e2740;
+    --text: #edf1f7;
+    --text-muted: #8a95ab;
+    --text-faint: #5a6478;
+    --accent: #5b8def;
+    --accent-hover: #6f9bf3;
+    --off: #ef5a5a;
+    --off-dim: #ef5a5a26;
+    --off-border: #ef5a5a40;
+    --bg-glow-1: #1a2540;
+    --bg-glow-2: #17233a;
+    --surface-input: #0c1220;
+    --btn-primary-text: #08101f;
+    --flash-error-text: #ffb8b8;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+    --sans: 'Inter', system-ui, sans-serif;
+  }
+
+  [data-theme="light"]{
+    --bg: #f3f5fa;
+    --panel: #ffffff;
+    --border: #dbe1ec;
+    --border-soft: #e6eaf2;
+    --text: #131a2c;
+    --text-muted: #5b6478;
+    --text-faint: #8890a3;
+    --accent: #3b6fd6;
+    --accent-hover: #2e5cc0;
+    --off: #d43f3f;
+    --off-dim: #d43f3f1a;
+    --off-border: #d43f3f40;
+    --bg-glow-1: #dbe6ff;
+    --bg-glow-2: #e3ecff;
+    --surface-input: #eef1f7;
+    --btn-primary-text: #ffffff;
+    --flash-error-text: #a32a2a;
+  }
+
+  *{ box-sizing: border-box; }
+
+  html, body{
+    margin:0;
+    padding:0;
+    background: var(--bg);
+    background-image:
+      radial-gradient(circle at 15% 0%, var(--bg-glow-1) 0%, transparent 45%),
+      radial-gradient(circle at 85% 8%, var(--bg-glow-2) 0%, transparent 40%);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+  }
+
+  .page{
+    min-height: 100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding: max(24px, env(safe-area-inset-top, 0px)) 20px max(24px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .card{
+    width: 100%;
+    max-width: 360px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px 26px;
+  }
+
+  .zone-label{
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    display:block;
+    margin-bottom: 4px;
+  }
+
+  .zone-name{
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 600;
+    display:block;
+    margin-bottom: 22px;
+  }
+
+  .field{ margin-bottom: 16px; }
+  .field label{
+    display:block;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+  .field input{
+    width: 100%;
+    background: var(--surface-input);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    padding: 11px 12px;
+    outline: none;
+  }
+  .field input:focus{ border-color: var(--accent); }
+
+  .btn-submit{
+    width: 100%;
+    appearance:none;
+    border:none;
+    cursor:pointer;
+    background: var(--accent);
+    color: var(--btn-primary-text);
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 15px;
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 4px;
+    transition: background .15s ease, transform .1s ease;
+  }
+  .btn-submit:hover{ background: var(--accent-hover); }
+  .btn-submit:active{ transform: scale(0.98); }
+
+  .error{
+    background: var(--off-dim);
+    border: 1px solid var(--off-border);
+    color: var(--flash-error-text);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
+    margin-bottom: 18px;
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="card">
+    <span class="zone-label">DDNS zone</span>
+    <span class="zone-name">{{ zone }}</span>
+
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+    <form method="post" action="/login">
+      <div class="field">
+        <label for="username">Логин</label>
+        <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">Пароль</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="btn-submit">Войти</button>
+    </form>
+  </div>
+</div>
+
+</body>
+</html>

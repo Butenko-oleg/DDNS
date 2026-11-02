@@ -2,8 +2,27 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+<!-- iOS "Add to Home Screen": run without Safari's own chrome, and let
+     our own background extend under the status bar/notch instead of
+     leaving a mismatched system-colored strip up there. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0e1420" id="meta-theme-color">
 <title>{{ zone }} · DDNS</title>
+<script>
+  // Applied before first paint so there's no flash of the wrong theme.
+  (function(){
+    try {
+      var saved = localStorage.getItem('ddns_theme');
+      if (saved === 'light' || saved === 'dark') {
+        document.documentElement.setAttribute('data-theme', saved);
+      }
+    } catch (e) { /* localStorage unavailable — just uses the default theme */ }
+  })();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -14,21 +33,69 @@
     --panel-hover: #1c2438;
     --border: #262f45;
     --border-soft: #1e2740;
+    --border-hover: #3a4560;
     --text: #edf1f7;
     --text-muted: #8a95ab;
     --text-faint: #5a6478;
     --accent: #5b8def;
     --accent-dim: #5b8def33;
+    --accent-hover: #6f9bf3;
     --live: #3dd68c;
     --live-dim: #3dd68c26;
+    --live-border: #3dd68c40;
     --stale: #f0b429;
     --stale-dim: #f0b42926;
     --off: #ef5a5a;
     --off-dim: #ef5a5a26;
+    --off-border: #ef5a5a40;
     --disabled: #64748b;
+    --bg-glow-1: #1a2540;
+    --bg-glow-2: #17233a;
+    --surface-input: #0c1220;
+    --surface-deep: #0a0f1c;
+    --overlay-bg: #05070ccc;
+    --btn-primary-text: #08101f;
+    --code-text: #c9d4e3;
+    --flash-msg-text: #a9f0cc;
+    --flash-error-text: #ffb8b8;
+    --danger-btn-text: #2a0a0a;
     --radius: 10px;
     --mono: 'JetBrains Mono', ui-monospace, monospace;
     --sans: 'Inter', system-ui, sans-serif;
+  }
+
+  [data-theme="light"]{
+    --bg: #f3f5fa;
+    --panel: #ffffff;
+    --panel-hover: #eef1f8;
+    --border: #dbe1ec;
+    --border-soft: #e6eaf2;
+    --border-hover: #b9c3d6;
+    --text: #131a2c;
+    --text-muted: #5b6478;
+    --text-faint: #8890a3;
+    --accent: #3b6fd6;
+    --accent-dim: #3b6fd61f;
+    --accent-hover: #2e5cc0;
+    --live: #1a9c68;
+    --live-dim: #1a9c681a;
+    --live-border: #1a9c6840;
+    --stale: #b5790f;
+    --stale-dim: #b5790f1a;
+    --off: #d43f3f;
+    --off-dim: #d43f3f1a;
+    --off-border: #d43f3f40;
+    --disabled: #8e97ab;
+    --bg-glow-1: #dbe6ff;
+    --bg-glow-2: #e3ecff;
+    --surface-input: #eef1f7;
+    --surface-deep: #e6eaf3;
+    --overlay-bg: #eef1f8cc;
+    --btn-primary-text: #ffffff;
+    --code-text: #2a3245;
+    --flash-msg-text: #0e6b45;
+    --flash-error-text: #a32a2a;
+    --danger-btn-text: #ffffff;
   }
 
   *{ box-sizing: border-box; }
@@ -38,8 +105,8 @@
     padding:0;
     background: var(--bg);
     background-image:
-      radial-gradient(circle at 15% 0%, #1a2540 0%, transparent 45%),
-      radial-gradient(circle at 85% 8%, #17233a 0%, transparent 40%);
+      radial-gradient(circle at 15% 0%, var(--bg-glow-1) 0%, transparent 45%),
+      radial-gradient(circle at 85% 8%, var(--bg-glow-2) 0%, transparent 40%);
     color: var(--text);
     font-family: var(--sans);
     min-height: 100vh;
@@ -50,7 +117,11 @@
   .wrap{
     max-width: 980px;
     margin: 0 auto;
-    padding: 40px 24px 80px;
+    /* max() instead of adding safe-area on top of the existing 40px —
+       in a normal browser safe-area is 0 so this stays 40px; in iOS
+       standalone/"Add to Home Screen" mode it becomes whichever is
+       larger, instead of stacking both and leaving too much gap. */
+    padding: max(40px, env(safe-area-inset-top, 0px)) 24px 80px;
   }
 
   /* ---------- Header ---------- */
@@ -60,6 +131,13 @@
     justify-content:space-between;
     gap: 16px;
     margin-bottom: 28px;
+    flex-wrap: wrap;
+  }
+
+  .topbar-actions{
+    display:flex;
+    gap: 8px;
+    align-items:center;
     flex-wrap: wrap;
   }
 
@@ -113,22 +191,105 @@
     display:inline-flex;
     align-items:center;
     gap:8px;
+    white-space: nowrap;
+    flex-shrink: 0;
     transition: background .15s ease, transform .1s ease, border-color .15s ease;
   }
   .btn:active{ transform: scale(0.97); }
 
   .btn-primary{
     background: var(--accent);
-    color: #08101f;
+    color: var(--btn-primary-text);
   }
-  .btn-primary:hover{ background: #6f9bf3; }
+  .btn-primary:hover{ background: var(--accent-hover); }
+  .btn-primary:disabled{
+    background: var(--surface-input);
+    color: var(--text-faint);
+    cursor: not-allowed;
+  }
+  .btn-primary:disabled:hover{ background: var(--surface-input); }
 
   .btn-ghost{
     background: transparent;
     color: var(--text-muted);
     border: 1px solid var(--border);
   }
-  .btn-ghost:hover{ color: var(--text); border-color: #3a4560; background: var(--panel-hover); }
+  .btn-ghost:hover{ color: var(--text); border-color: var(--border-hover); background: var(--panel-hover); }
+
+  .autoupdate-control{
+    display:flex;
+    align-items:stretch;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    transition: border-color .15s ease;
+  }
+  .autoupdate-control:hover{ border-color: var(--border-hover); }
+  #autoupdate-toggle{
+    border: none;
+    border-radius: 0;
+  }
+  #autoupdate-toggle.active{
+    color: var(--live);
+    background: var(--live-dim);
+  }
+  #autoupdate-toggle.active svg{
+    animation: spin 2s linear infinite;
+  }
+  @media (prefers-reduced-motion: no-preference){
+    #autoupdate-toggle.active svg{ animation: spin 2s linear infinite; }
+  }
+  @keyframes spin{
+    from{ transform: rotate(0deg); }
+    to{ transform: rotate(360deg); }
+  }
+  .autoupdate-divider{
+    display:none;
+    width: 1px;
+    background: var(--border);
+  }
+  .autoupdate-divider.visible{ display:block; }
+  .autoupdate-select-wrap{
+    display:none;
+    position: relative;
+    align-items: stretch;
+  }
+  .autoupdate-select-wrap.visible{ display:flex; }
+  .autoupdate-select{
+    /* Reset native OS styling (iOS/Safari especially render selects with
+       their own fully-rounded pill shape, ignoring border-radius/border
+       here otherwise — that's what made this look like two separate
+       buttons instead of one joined control). */
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    display:flex;
+    align-items:center;
+    background: var(--surface-input);
+    border: none;
+    border-radius: 0;
+    color: var(--text-muted);
+    font-family: var(--sans);
+    font-size: 13px;
+    padding: 0 24px 0 10px;
+    height: 100%;
+    cursor:pointer;
+  }
+  .autoupdate-select:focus{
+    outline: none;
+    background: var(--panel-hover);
+  }
+  .autoupdate-select::selection{
+    background: transparent;
+  }
+  .autoupdate-chevron{
+    position:absolute;
+    right: 7px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-faint);
+    pointer-events: none;
+  }
 
   /* ---------- Stats strip ---------- */
   .stats{
@@ -171,8 +332,8 @@
     margin-bottom: 16px;
     border: 1px solid;
   }
-  .flash-msg{ background: var(--live-dim); border-color: #3dd68c40; color: #a9f0cc; }
-  .flash-error{ background: var(--off-dim); border-color: #ef5a5a40; color: #ffb8b8; }
+  .flash-msg{ background: var(--live-dim); border-color: var(--live-border); color: var(--flash-msg-text); }
+  .flash-error{ background: var(--off-dim); border-color: var(--off-border); color: var(--flash-error-text); }
 
   /* ---------- Panel / table ---------- */
   .panel{
@@ -240,9 +401,30 @@
     overflow:hidden;
     text-overflow:ellipsis;
     white-space:nowrap;
+    min-width: 0;
+  }
+  .host-cell{
+    display:flex;
+    align-items:center;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-width: 0;
+  }
+  .host-cell .copy-btn{
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity .12s ease;
+  }
+  .row:hover .host-cell .copy-btn,
+  .host-cell .copy-btn:focus-visible{
+    opacity: 1;
+  }
+  @media (max-width: 720px){
+    .host-cell .copy-btn{ opacity: 1; }
   }
   .host-desc{
     display:block;
+    flex: 1 0 100%;
     font-family: var(--sans);
     font-size: 12px;
     color: var(--text-faint);
@@ -270,11 +452,28 @@
     align-items:center;
     gap: 8px;
   }
+  .ip-cell{
+    display:flex;
+    align-items:center;
+    gap: 6px;
+    min-width: 0;
+  }
+  .ip-cell .copy-btn{
+    opacity: 0;
+    transition: opacity .12s ease;
+  }
+  .row:hover .ip-cell .copy-btn,
+  .ip-cell .copy-btn:focus-visible{
+    opacity: 1;
+  }
+  @media (max-width: 720px){
+    .ip-cell .copy-btn{ opacity: 1; }
+  }
   .token{
     font-family: var(--mono);
     font-size: 12px;
     color: var(--text-faint);
-    background: #0c1220;
+    background: var(--surface-input);
     border: 1px solid var(--border-soft);
     padding: 4px 8px;
     border-radius: 6px;
@@ -307,7 +506,7 @@
     transition: background .12s ease, color .12s ease, border-color .12s ease;
   }
   .icon-btn:hover{ background: var(--panel-hover); border-color: var(--border); color: var(--text); }
-  .icon-btn.danger:hover{ color: var(--off); border-color: #ef5a5a40; background: var(--off-dim); }
+  .icon-btn.danger:hover{ color: var(--off); border-color: var(--off-border); background: var(--off-dim); }
   .icon-btn svg{ width:15px; height:15px; }
 
   /* ---------- Empty state ---------- */
@@ -327,7 +526,7 @@
   /* ---------- Modal ---------- */
   .modal-overlay{
     position: fixed; inset:0;
-    background: #05070ccc;
+    background: var(--overlay-bg);
     backdrop-filter: blur(3px);
     display:none;
     align-items:center;
@@ -343,6 +542,8 @@
     border-radius: 12px;
     width: 100%;
     max-width: 420px;
+    max-height: 85vh;
+    overflow-y: auto;
     padding: 22px;
   }
   .modal h2{
@@ -354,6 +555,50 @@
     color: var(--text-muted);
     margin: 0 0 18px;
   }
+
+  .settings-section{
+    padding: 16px 0;
+    border-top: 1px solid var(--border-soft);
+  }
+  .settings-section:first-of-type{
+    padding-top: 4px;
+    border-top: none;
+  }
+  .settings-section-title{
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--text-faint);
+    margin-bottom: 10px;
+  }
+  .theme-toggle-row{
+    display:flex;
+    gap: 8px;
+  }
+  .theme-btn{
+    flex: 1;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap: 8px;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface-input);
+    color: var(--text-muted);
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    cursor:pointer;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  .theme-btn:hover{ color: var(--text); border-color: var(--border-hover); }
+  .theme-btn.active{
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
   .field{ margin-bottom: 14px; }
   .field label{
     display:block;
@@ -367,7 +612,7 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     overflow:hidden;
-    background: #0c1220;
+    background: var(--surface-input);
   }
   .field input{
     flex:1;
@@ -386,11 +631,19 @@
     font-family: var(--mono);
     font-size: 13px;
     color: var(--text-faint);
-    background: #0a0f1c;
+    background: var(--surface-deep);
     border-left: 1px solid var(--border);
   }
   .field input.plain{
     font-family: var(--sans);
+  }
+  /* Подсказка в пустом поле не должна выглядеть как введённое значение:
+     иначе её хочется выделить и стереть. Делаем заметно бледнее текста. */
+  .field input::placeholder,
+  .field select::placeholder,
+  .field textarea::placeholder{
+    color: var(--text-faint);
+    opacity: .55;
   }
   .modal-actions{
     display:flex;
@@ -412,7 +665,7 @@
   .tabs{
     display:flex;
     gap: 2px;
-    background: #0a0f1c;
+    background: var(--surface-deep);
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 3px;
@@ -454,7 +707,7 @@
     font-family: var(--mono);
     font-size: 13px;
     color: var(--text);
-    background: #0c1220;
+    background: var(--surface-input);
     border: 1px solid var(--border-soft);
     border-radius: 6px;
     padding: 7px 10px;
@@ -471,8 +724,8 @@
     font-family: var(--mono);
     font-size: 12.5px;
     line-height: 1.6;
-    color: #c9d4e3;
-    background: #0a0f1c;
+    color: var(--code-text);
+    background: var(--surface-deep);
     border: 1px solid var(--border-soft);
     border-radius: 8px;
     padding: 14px 44px 14px 14px;
@@ -502,7 +755,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    background: #0a0f1c;
+    background: var(--surface-deep);
     border: 1px solid var(--border-soft);
     border-radius: 8px;
     padding: 8px 8px 8px 14px;
@@ -510,13 +763,13 @@
   .banned-ip-addr{
     font-family: var(--mono);
     font-size: 13px;
-    color: #c9d4e3;
+    color: var(--code-text);
   }
   .banned-ip-unban{
     font-size: 12px;
     padding: 5px 10px;
     color: var(--off);
-    border-color: #ef5a5a40;
+    border-color: var(--off-border);
   }
   .banned-ip-unban:hover{
     background: var(--off-dim);
@@ -532,7 +785,7 @@
   .config-note b{ color: var(--text-muted); }
   .config-note code{
     font-family: var(--mono);
-    background: #0c1220;
+    background: var(--surface-input);
     border: 1px solid var(--border-soft);
     border-radius: 4px;
     padding: 1px 5px;
@@ -549,9 +802,103 @@
     }
     .row .pulse{ position:absolute; left:18px; top:20px; }
     .token-cell{ margin-top: 4px; }
-    .actions{ justify-content:flex-start; margin-top: 8px; }
     .stats{ grid-template-columns: repeat(2, 1fr); }
+
+    /* Topbar: icon-only controls stay in a compact row, the primary
+       "New host" button gets its own full-width row below instead of
+       being squeezed into the same line (that's what was breaking its
+       shape / wrapping its text before). */
+    .topbar-actions{
+      width: 100%;
+    }
+    .topbar-actions .btn-primary{
+      width: 100%;
+      justify-content:center;
+      margin-top: 4px;
+    }
+
+    /* Actions get their own clearly separated row — a visible divider,
+       full width, bigger touch targets — instead of squeezed in next
+       to everything else. */
+    .actions{
+      justify-content: stretch;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border-soft);
+      gap: 8px;
+    }
+    .icon-btn{
+      flex: 1;
+      height: 42px;
+      width: auto;
+    }
+    .icon-btn svg{ width: 17px; height: 17px; }
+
+    /* Modals: bottom sheet instead of a small centered dialog —
+       full width, rounded top only, scrollable if content is tall. */
+    .modal-overlay{
+      align-items: flex-end;
+      padding: 0;
+    }
+    .modal{
+      max-width: none;
+      width: 100%;
+      max-height: 88vh;
+      overflow-y: auto;
+      border-radius: 16px 16px 0 0;
+      padding-bottom: max(22px, env(safe-area-inset-bottom));
+    }
+
+    /* 16px+ prevents iOS Safari auto-zooming the page on focus */
+    .field input,
+    .kv-value{ font-size: 16px; }
+
+    .modal-actions{
+      flex-direction: column-reverse;
+      gap: 8px;
+    }
+    .modal-actions .btn{
+      width: 100%;
+      justify-content: center;
+      padding: 13px;
+    }
+
+    .tabs{ -webkit-overflow-scrolling: touch; }
   }
+  /* ---------- Системные записи зоны ---------- */
+  .sys-table{ width:100%; border-collapse:collapse; font-family:var(--mono); font-size:12px; }
+  .sys-table th{
+    text-align:left; color:var(--text-muted); font-weight:500;
+    padding:7px 8px; border-bottom:1px solid var(--border);
+    font-family:var(--font); font-size:11px; text-transform:uppercase; letter-spacing:.04em;
+  }
+  .sys-table td{
+    padding:7px 8px; border-bottom:1px solid var(--border-soft);
+    vertical-align:top; word-break:break-word;
+  }
+  .sys-table tr:last-child td{ border-bottom:none; }
+  .sys-table .sys-name{ color:var(--text); }
+  .sys-table .sys-type{
+    color:var(--accent); white-space:nowrap; font-weight:600;
+  }
+  .sys-table .sys-ttl{ color:var(--text-faint); white-space:nowrap; text-align:right; }
+  .sys-note{ margin:14px 0 4px; }
+  .sys-actions{ white-space:nowrap; text-align:right; }
+  .sys-btn{
+    background:none; border:none; cursor:pointer; padding:2px 6px;
+    color:var(--text-muted); font-size:14px; line-height:1;
+    border-radius:6px; transition:background .15s, color .15s;
+  }
+  .sys-btn:hover{ background:var(--panel-hover); color:var(--text); }
+  .sys-btn-del:hover{ color:var(--off); }
+  .sys-lock{ color:var(--text-faint); padding:0 6px; }
+  .field select{
+    flex:1; min-width:0; background:transparent; border:none; outline:none;
+    color:var(--text); font-family:var(--mono); font-size:14px; padding:10px 12px;
+    appearance:none; -webkit-appearance:none; cursor:pointer;
+  }
+  .field select option{ background:var(--panel); color:var(--text); }
+
 </style>
 </head>
 <body>
@@ -566,13 +913,37 @@
         <span class="zone-name">{{ zone }}</span>
       </div>
     </div>
-    <div style="display:flex; gap:8px;">
+    <div class="topbar-actions">
+      <div class="autoupdate-control">
+        <button class="btn btn-ghost" id="autoupdate-toggle" title="Автообновление" onclick="toggleAutoupdate()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+        </button>
+        <div class="autoupdate-divider" id="autoupdate-divider"></div>
+        <div class="autoupdate-select-wrap" id="autoupdate-select-wrap">
+          <select id="autoupdate-interval" class="autoupdate-select" title="Периодичность автообновления" onchange="changeAutoupdateInterval(this.value)">
+            <option value="1">1 мин</option>
+            <option value="5" selected>5 мин</option>
+            <option value="10">10 мин</option>
+            <option value="30">30 мин</option>
+            <option value="60">60 мин</option>
+          </select>
+          <svg class="autoupdate-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+        </div>
+      </div>
+      <button class="btn btn-ghost" title="Системные записи зоны" onclick="openSystem()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/></svg>
+      </button>
       <button class="btn btn-ghost" title="Заблокированные IP" onclick="openBanned()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9.5 9.5 5 5M14.5 9.5l-5 5"/></svg>
       </button>
-      <button class="btn btn-ghost" title="Учётные данные" onclick="openSettings()">
+      <button class="btn btn-ghost" title="Настройки" onclick="openSettings()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
       </button>
+      <form method="post" action="/logout" style="display:contents">
+        <button type="submit" class="btn btn-ghost" title="Выйти">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+        </button>
+      </form>
       <button class="btn btn-primary" onclick="openCreate()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
         Новый хост
@@ -617,12 +988,22 @@
     <div class="row {% if not c.active %}is-disabled{% endif %}">
       <div class="pulse {{ c.status }}" title="{{ c.status }}"></div>
 
-      <div>
+      <div class="host-cell">
         <span class="host">{{ c.fqdn }}</span>
+        <button class="copy-btn" title="Скопировать домен" onclick="copyToken('{{ c.fqdn }}', this)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+        </button>
         {% if c.description %}<span class="host-desc">{{ c.description }}</span>{% endif %}
       </div>
 
-      <div class="ip {% if not c.last_ip %}empty{% endif %}">{{ c.last_ip or '—' }}</div>
+      <div class="ip-cell">
+        <span class="ip {% if not c.last_ip %}empty{% endif %}">{{ c.last_ip or '—' }}</span>
+        {% if c.last_ip %}
+        <button class="copy-btn" title="Скопировать IP" onclick="copyToken('{{ c.last_ip }}', this)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+        </button>
+        {% endif %}
+      </div>
 
       <div class="seen">{{ c.last_update_human }}</div>
 
@@ -677,14 +1058,14 @@
       <div class="field">
         <label for="f-hostname">Имя хоста</label>
         <div class="field-input">
-          <input type="text" id="f-hostname" name="hostname" placeholder="home" required autocomplete="off">
+          <input type="text" id="f-hostname" name="hostname" placeholder="например, home" required autocomplete="off">
           <span class="field-suffix">.{{ zone }}</span>
         </div>
       </div>
       <div class="field">
         <label for="f-description">Описание <span style="opacity:.6">(необязательно)</span></label>
         <div class="field-input">
-          <input type="text" class="plain" id="f-description" name="description" placeholder="домашний роутер" autocomplete="off">
+          <input type="text" class="plain" id="f-description" name="description" placeholder="например, домашний роутер" autocomplete="off">
         </div>
       </div>
       <div class="modal-actions">
@@ -703,7 +1084,7 @@
     <form method="post" id="delete-form">
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" onclick="closeModals()">Отмена</button>
-        <button type="submit" class="btn btn-primary" style="background:var(--off); color:#2a0a0a;">Удалить</button>
+        <button type="submit" class="btn btn-primary" style="background:var(--off); color:var(--danger-btn-text);">Удалить</button>
       </div>
     </form>
   </div>
@@ -727,20 +1108,20 @@
     <!-- Omada -->
     <div class="tab-panel active" data-panel="omada">
       <div class="kv-row"><div class="kv-label">Провайдер</div><div class="kv-value">Custom</div><div></div></div>
-      <div class="kv-row"><div class="kv-label">Update-URL</div><div class="kv-value" id="omada-url"></div><button class="copy-btn" data-copy="omada-url"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
-      <div class="kv-row"><div class="kv-label">Username</div><div class="kv-value" id="omada-user"></div><button class="copy-btn" data-copy="omada-user"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
-      <div class="kv-row"><div class="kv-label">Password</div><div class="kv-value" id="omada-pass"></div><button class="copy-btn" data-copy="omada-pass"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
-      <div class="kv-row"><div class="kv-label">Domain Name</div><div class="kv-value" id="omada-domain"></div><button class="copy-btn" data-copy="omada-domain"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
+      <div class="kv-row"><div class="kv-label">Update-URL</div><div class="kv-value" id="omada-url"></div><button class="copy-btn" title="Скопировать" data-copy="omada-url"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
+      <div class="kv-row"><div class="kv-label">Username</div><div class="kv-value" id="omada-user"></div><button class="copy-btn" title="Скопировать" data-copy="omada-user"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
+      <div class="kv-row"><div class="kv-label">Password</div><div class="kv-value" id="omada-pass"></div><button class="copy-btn" title="Скопировать" data-copy="omada-pass"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
+      <div class="kv-row"><div class="kv-label">Domain Name</div><div class="kv-value" id="omada-domain"></div><button class="copy-btn" title="Скопировать" data-copy="omada-domain"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
       <p class="config-note">Settings → Services → Dynamic DNS → Create New Entry. В <b>Service Provider</b> выбери <b>Custom</b>, заполни поля выше и вставь <b>Update-URL</b> как есть — квадратные скобки <code>[USERNAME]</code>, <code>[PASSWORD]</code>, <code>[DOMAIN]</code>, <code>[IP]</code> писать нужно буквально, Omada сам подставит туда значения полей выше при каждом обновлении.</p>
     </div>
 
     <!-- Keenetic -->
     <div class="tab-panel" data-panel="keenetic">
       <div class="kv-row"><div class="kv-label">Сервис</div><div class="kv-value">Other</div><div></div></div>
-      <div class="kv-row"><div class="kv-label">Адрес сервера</div><div class="kv-value" id="keenetic-url"></div><button class="copy-btn" data-copy="keenetic-url"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
-      <div class="kv-row"><div class="kv-label">Доменное имя</div><div class="kv-value" id="keenetic-domain"></div><button class="copy-btn" data-copy="keenetic-domain"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
-      <div class="kv-row"><div class="kv-label">Логин</div><div class="kv-value" id="keenetic-user"></div><button class="copy-btn" data-copy="keenetic-user"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
-      <div class="kv-row"><div class="kv-label">Пароль</div><div class="kv-value" id="keenetic-pass"></div><button class="copy-btn" data-copy="keenetic-pass"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
+      <div class="kv-row"><div class="kv-label">Адрес сервера</div><div class="kv-value" id="keenetic-url"></div><button class="copy-btn" title="Скопировать" data-copy="keenetic-url"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
+      <div class="kv-row"><div class="kv-label">Доменное имя</div><div class="kv-value" id="keenetic-domain"></div><button class="copy-btn" title="Скопировать" data-copy="keenetic-domain"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
+      <div class="kv-row"><div class="kv-label">Логин</div><div class="kv-value" id="keenetic-user"></div><button class="copy-btn" title="Скопировать" data-copy="keenetic-user"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
+      <div class="kv-row"><div class="kv-label">Пароль</div><div class="kv-value" id="keenetic-pass"></div><button class="copy-btn" title="Скопировать" data-copy="keenetic-pass"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
       <p class="config-note">Интернет → Общие настройки → Dynamic DNS (DDNS-клиент). В поле <b>Сервис</b> выбери <b>Other</b> — появится поле для адреса сервера. Включи «Определять IP-адрес автоматически».</p>
     </div>
 
@@ -748,17 +1129,14 @@
     <div class="tab-panel" data-panel="mikrotik">
       <div class="code-block">
         <pre id="mikrotik-code"></pre>
-        <button class="code-copy" data-copy="mikrotik-code"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
+        <button class="code-copy" title="Скопировать" data-copy="mikrotik-code"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
       </div>
       <p class="config-note">Вставь целиком в <b>New Terminal</b> в WinBox/WebFig. Создаст скрипт и задачу планировщика, которая будет дёргать хост каждые 5 минут.</p>
     </div>
 
     <!-- Windows -->
     <div class="tab-panel" data-panel="windows">
-      <div class="code-block">
-        <pre id="windows-code"></pre>
-        <button class="code-copy" data-copy="windows-code"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
-      </div>
+      <pre id="windows-code" style="display:none"></pre>
 
       <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
         <button class="btn btn-primary" onclick="downloadText('windows-code', 'ddns-update.ps1')">
@@ -789,8 +1167,8 @@
       <details style="margin-top:14px;">
         <summary style="cursor:pointer; color:var(--text-muted); font-size:13px;">Настроить вручную, без установщика</summary>
         <div style="margin-top:10px;">
-          <div class="kv-row"><div class="kv-label">Программа</div><div class="kv-value" id="windows-program">powershell.exe</div><button class="copy-btn" data-copy="windows-program"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
-          <div class="kv-row"><div class="kv-label">Аргументы</div><div class="kv-value" id="windows-args">-WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\ddns-update.ps1"</div><button class="copy-btn" data-copy="windows-args"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
+          <div class="kv-row"><div class="kv-label">Программа</div><div class="kv-value" id="windows-program">powershell.exe</div><button class="copy-btn" title="Скопировать" data-copy="windows-program"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
+          <div class="kv-row"><div class="kv-label">Аргументы</div><div class="kv-value" id="windows-args">-WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\ddns-update.ps1"</div><button class="copy-btn" title="Скопировать" data-copy="windows-args"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
           <p class="config-note">
             <code>-ExecutionPolicy Bypass</code> обязателен — Windows по умолчанию блокирует запуск любых <code>.ps1</code> («выполнение сценариев отключено в этой системе»), это не связано со скриптом.
             <code>-WindowStyle Hidden</code> сам по себе не всегда убирает мигание полностью — для гарантии на вкладке «Общие» свойств задачи выбери «Выполнять вне зависимости от того, выполнен ли вход пользователя» вместо «только для вошедших пользователей».
@@ -807,14 +1185,14 @@
       <div class="kv-label" style="margin-bottom:6px;">Проверить один раз:</div>
       <div class="code-block">
         <pre id="mac-test"></pre>
-        <button class="code-copy" data-copy="mac-test"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
+        <button class="code-copy" title="Скопировать" data-copy="mac-test"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
       </div>
       <p class="config-note">Запусти в терминале — должен вернуться ответ вида <code>good 1.2.3.4</code>. Если <code>badauth</code> — проверь токен, если ошибка соединения — проверь, что адрес доступен и по https.</p>
 
       <div class="kv-label" style="margin:16px 0 6px;">Автообновление по расписанию (crontab -e):</div>
       <div class="code-block">
         <pre id="mac-code"></pre>
-        <button class="code-copy" data-copy="mac-code"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
+        <button class="code-copy" title="Скопировать" data-copy="mac-code"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
       </div>
       <p class="config-note">Работает и на macOS, и на Linux, и на NAS с поддержкой cron — обновляет IP каждые 5 минут.</p>
     </div>
@@ -840,36 +1218,194 @@
 
 <!-- Settings / change login+password modal -->
 <div class="modal-overlay" id="settings-overlay">
+  <div class="modal wide">
+    <h2>Настройки</h2>
+
+    <div class="settings-section">
+      <div class="settings-section-title">Оформление</div>
+      <div class="theme-toggle-row">
+        <button type="button" class="theme-btn" data-theme-choice="dark" onclick="setTheme('dark')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></svg>
+          Тёмная
+        </button>
+        <button type="button" class="theme-btn" data-theme-choice="light" onclick="setTheme('light')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+          Светлая
+        </button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">Логин</div>
+      <p class="sub" style="margin-bottom:12px;">Меняет только имя для входа, пароль остаётся прежним.</p>
+      <form method="post" action="/admin/change-password" id="login-form">
+        <input type="hidden" name="new_password" value="">
+        <input type="hidden" name="new_password_confirm" value="">
+        <div class="field">
+          <label for="s-username">Новый логин</label>
+          <div class="field-input">
+            <input type="text" class="plain" id="s-username" name="new_username" value="{{ admin_username }}" required autocomplete="username">
+          </div>
+        </div>
+        <div class="field">
+          <label for="s-current-for-login">Текущий пароль <span style="opacity:.6">(для подтверждения)</span></label>
+          <div class="field-input">
+            <input type="password" class="plain" id="s-current-for-login" name="current_password" required autocomplete="current-password">
+          </div>
+        </div>
+        <div class="modal-actions" style="margin-top:12px;">
+          <button type="submit" class="btn btn-primary" disabled>Сохранить логин</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">Пароль</div>
+      <p class="sub" style="margin-bottom:12px;">Логин остаётся прежним, меняется только пароль входа.</p>
+      <form method="post" action="/admin/change-password" id="password-form">
+        <input type="hidden" name="new_username" value="{{ admin_username }}">
+        <div class="field">
+          <label for="s-current">Текущий пароль</label>
+          <div class="field-input">
+            <input type="password" class="plain" id="s-current" name="current_password" required autocomplete="current-password">
+          </div>
+        </div>
+        <div class="field">
+          <label for="s-new">Новый пароль <span style="opacity:.6">(минимум 10 символов)</span></label>
+          <div class="field-input">
+            <input type="password" class="plain" id="s-new" name="new_password" minlength="10" required autocomplete="new-password">
+          </div>
+        </div>
+        <div class="field">
+          <label for="s-confirm">Повтори новый пароль</label>
+          <div class="field-input">
+            <input type="password" class="plain" id="s-confirm" name="new_password_confirm" minlength="10" required autocomplete="new-password">
+          </div>
+        </div>
+        <div class="modal-actions" style="margin-top:12px;">
+          <button type="submit" class="btn btn-primary" disabled>Сохранить пароль</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="modal-actions">
+      <button type="button" class="btn btn-primary" onclick="closeModals()">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<!-- Zone records modal -->
+<div class="modal-overlay" id="system-overlay">
+  <div class="modal wide">
+    <h2>Записи зоны {{ zone }}</h2>
+    <p class="sub">
+      Всё, что есть в зоне, кроме хостов DDNS. <strong style="color:var(--text)">@</strong> — сама зона.
+      Записи NS и SOA в апексе не редактируются: на них держится домен.
+    </p>
+
+    {% if system_records %}
+    <table class="sys-table">
+      <thead>
+        <tr>
+          <th>Имя</th>
+          <th>Тип</th>
+          <th>Значение</th>
+          <th style="text-align:right">TTL</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in system_records %}
+        <tr>
+          <td class="sys-name">{{ r.short }}</td>
+          <td class="sys-type">{{ r.type }}</td>
+          <td>{% if r.prio %}{{ r.prio }} {% endif %}{{ r.content }}</td>
+          <td class="sys-ttl">{{ r.ttl }}</td>
+          <td class="sys-actions">
+            {% if r.protected %}
+              <span class="sys-lock" title="Управляется самой зоной">🔒</span>
+            {% elif r.multi %}
+              <span class="sys-lock" title="Несколько значений — правка из панели отключена">⋯</span>
+            {% else %}
+              <button type="button" class="sys-btn" title="Изменить"
+                      data-name="{{ r.short }}" data-type="{{ r.type }}"
+                      data-content="{{ r.content|e }}" data-ttl="{{ r.ttl }}"
+                      data-prio="{{ r.prio if r.prio else '' }}"
+                      onclick="openSysForm(this, 'edit')">✎</button>
+              <form method="post" action="/admin/system-records/delete" style="display:contents"
+                    onsubmit="return confirm('Удалить запись {{ r.short }} {{ r.type }}?');">
+                <input type="hidden" name="name" value="{{ r.short }}">
+                <input type="hidden" name="rtype" value="{{ r.type }}">
+                <button type="submit" class="sys-btn sys-btn-del" title="Удалить">✕</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p class="config-note">Системных записей нет — вся зона состоит из хостов DDNS.</p>
+    {% endif %}
+
+    <div class="modal-actions" style="justify-content:space-between;">
+      <button type="button" class="btn btn-primary" onclick="openSysForm(null, 'add')">Добавить запись</button>
+      <button type="button" class="btn btn-ghost" onclick="closeModals()">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<!-- Zone record form modal -->
+<div class="modal-overlay" id="sysform-overlay">
   <div class="modal">
-    <h2>Учётные данные администратора</h2>
-    <p class="sub">Логин можно поменять, пароль — по желанию (оставь поля пустыми, чтобы не менять).</p>
-    <form method="post" action="/admin/change-password">
+    <h2 id="sysform-title">Новая запись</h2>
+    <p class="sub" id="sysform-sub">
+      Имя пишется относительно зоны: <code>@</code> — сама зона, <code>mail</code> — запись <code>mail.{{ zone }}</code>.
+    </p>
+    <form method="post" action="/admin/system-records/save" id="sysform">
+      <input type="hidden" name="orig_name" id="sf-orig-name" value="">
+      <input type="hidden" name="orig_type" id="sf-orig-type" value="">
+
       <div class="field">
-        <label for="s-current">Текущий пароль</label>
+        <label for="sf-name">Имя</label>
         <div class="field-input">
-          <input type="password" class="plain" id="s-current" name="current_password" required autocomplete="current-password">
+          <input type="text" id="sf-name" name="name" placeholder="@" autocomplete="off" autocapitalize="off" spellcheck="false">
+          <span class="field-suffix">.{{ zone }}</span>
         </div>
       </div>
+
       <div class="field">
-        <label for="s-username">Логин</label>
+        <label for="sf-type">Тип</label>
         <div class="field-input">
-          <input type="text" class="plain" id="s-username" name="new_username" value="{{ admin_username }}" required autocomplete="username">
+          <select id="sf-type" name="rtype" onchange="syncSysPrio()">
+            {% for t in record_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+          </select>
         </div>
       </div>
+
       <div class="field">
-        <label for="s-new">Новый пароль <span style="opacity:.6">(необязательно, минимум 10 символов)</span></label>
+        <label for="sf-content">Значение</label>
         <div class="field-input">
-          <input type="password" class="plain" id="s-new" name="new_password" minlength="10" autocomplete="new-password">
+          <input type="text" id="sf-content" name="content" placeholder="192.0.2.10" autocomplete="off" spellcheck="false">
         </div>
       </div>
+
       <div class="field">
-        <label for="s-confirm">Повтори новый пароль</label>
+        <label for="sf-ttl">TTL, секунд</label>
         <div class="field-input">
-          <input type="password" class="plain" id="s-confirm" name="new_password_confirm" minlength="10" autocomplete="new-password">
+          <input type="number" id="sf-ttl" name="ttl" value="3600" min="60" max="604800">
         </div>
       </div>
+
+      <div class="field" id="sf-prio-wrap" style="display:none">
+        <label for="sf-prio">Приоритет (MX)</label>
+        <div class="field-input">
+          <input type="number" id="sf-prio" name="prio" value="10" min="0" max="65535">
+        </div>
+      </div>
+
       <div class="modal-actions">
-        <button type="button" class="btn btn-ghost" onclick="closeModals()">Отмена</button>
+        <button type="button" class="btn btn-ghost" onclick="closeSysForm()">Отмена</button>
         <button type="submit" class="btn btn-primary">Сохранить</button>
       </div>
     </form>
@@ -925,24 +1461,109 @@
 <script>
   const BASE_URL = {{ base_url|tojson }};
 
+  function lockScroll(){
+    // Plain `overflow: hidden` on body is not reliable on iOS Safari —
+    // touch-drag scrolling still leaks through to the page behind a
+    // fixed-position overlay. Pinning body itself to position:fixed is
+    // the standard workaround that actually holds on iOS.
+    const scrollY = window.scrollY || window.pageYOffset || 0;
+    document.body.dataset.scrollY = String(scrollY);
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.left = '0';
+    document.body.style.right = '0';
+
+    if (typeof autoupdateTimer !== 'undefined' && autoupdateTimer) {
+      clearInterval(autoupdateTimer);
+      autoupdateTimer = null;
+    }
+  }
+
+  function unlockScroll(){
+    const scrollY = parseInt(document.body.dataset.scrollY || '0', 10);
+    document.body.style.position = '';
+    document.body.style.top = '';
+    document.body.style.left = '';
+    document.body.style.right = '';
+    window.scrollTo(0, scrollY);
+  }
+
   function closeModals(){
     document.getElementById('form-overlay').classList.remove('open');
     document.getElementById('delete-overlay').classList.remove('open');
     document.getElementById('config-overlay').classList.remove('open');
     document.getElementById('settings-overlay').classList.remove('open');
     document.getElementById('banned-overlay').classList.remove('open');
+    document.getElementById('system-overlay').classList.remove('open');
+    document.getElementById('sysform-overlay').classList.remove('open');
+    unlockScroll();
+
+    // Resume auto-refresh (if it was on) now that no modal is open.
+    if (typeof loadAutoupdateState === 'function') {
+      applyAutoupdateState(loadAutoupdateState());
+    }
   }
 
   function openSettings(){
+    lockScroll();
     document.getElementById('settings-overlay').classList.add('open');
-    document.getElementById('s-current').focus();
+    // No autofocus on purpose — focusing a password field immediately
+    // triggers the browser/iOS "use saved password" suggestion, which
+    // is unwanted here since the user hasn't asked to fill anything yet.
+  }
+
+  function openSystem(){
+    lockScroll();
+    document.getElementById('system-overlay').classList.add('open');
+  }
+
+  function syncSysPrio(){
+    const isMx = document.getElementById('sf-type').value === 'MX';
+    document.getElementById('sf-prio-wrap').style.display = isMx ? '' : 'none';
+    const hint = {
+      A: 'например, 192.0.2.10', AAAA: 'например, 2001:db8::10', CNAME: 'например, example.com',
+      TXT: 'например, любой текст', MX: 'например, mail.example.com'
+    }[document.getElementById('sf-type').value] || '';
+    document.getElementById('sf-content').placeholder = hint;
+  }
+
+  function openSysForm(btn, mode){
+    const f = document.getElementById('sysform');
+    f.reset();
+    document.getElementById('sf-orig-name').value = '';
+    document.getElementById('sf-orig-type').value = '';
+    document.getElementById('sf-ttl').value = 3600;
+
+    if (mode === 'edit' && btn){
+      document.getElementById('sysform-title').textContent = 'Изменить запись';
+      document.getElementById('sf-name').value = btn.dataset.name;
+      document.getElementById('sf-type').value = btn.dataset.type;
+      document.getElementById('sf-content').value = btn.dataset.content;
+      document.getElementById('sf-ttl').value = btn.dataset.ttl;
+      document.getElementById('sf-prio').value = btn.dataset.prio || 10;
+      document.getElementById('sf-orig-name').value = btn.dataset.name;
+      document.getElementById('sf-orig-type').value = btn.dataset.type;
+    } else {
+      document.getElementById('sysform-title').textContent = 'Новая запись';
+      document.getElementById('sf-prio').value = 10;
+    }
+
+    syncSysPrio();
+    document.getElementById('sysform-overlay').classList.add('open');
+    document.getElementById('sf-name').focus();
+  }
+
+  function closeSysForm(){
+    document.getElementById('sysform-overlay').classList.remove('open');
   }
 
   function openBanned(){
+    lockScroll();
     document.getElementById('banned-overlay').classList.add('open');
   }
 
   function openCreate(){
+    lockScroll();
     document.getElementById('form-title').textContent = 'Новый хост';
     document.getElementById('form-sub').textContent = 'Создаст токен для обновления IP этого хоста.';
     document.getElementById('host-form').action = '/admin/create';
@@ -953,6 +1574,7 @@
   }
 
   function openEdit(id, hostname, description){
+    lockScroll();
     document.getElementById('form-title').textContent = 'Изменить хост';
     document.getElementById('form-sub').textContent = 'Токен обновления останется прежним.';
     document.getElementById('host-form').action = '/admin/edit/' + id;
@@ -963,12 +1585,14 @@
   }
 
   function openDelete(id, fqdn){
+    lockScroll();
     document.getElementById('delete-name').textContent = fqdn;
     document.getElementById('delete-form').action = '/admin/delete/' + id;
     document.getElementById('delete-overlay').classList.add('open');
   }
 
   function openConfig(id, hostname, fqdn, token){
+    lockScroll();
     document.getElementById('config-fqdn').textContent = fqdn;
 
     // Omada
@@ -1007,7 +1631,8 @@ $LogFile = Join-Path $PSScriptRoot "ddns-update.log"
 try {
     $Response = Invoke-RestMethod \`
         -Uri "${BASE_URL}/nic/update?hostname=${fqdn}" \`
-        -Headers @{ Authorization = "Basic $Auth" }
+        -Headers @{ Authorization = "Basic $Auth" } \`
+        -TimeoutSec 15
 
     "$(Get-Date -Format s)  OK: $Response" | Out-File -FilePath $LogFile -Append -Encoding utf8
 } catch {
@@ -1016,10 +1641,10 @@ try {
 
     // macOS / Linux
     setText('mac-test',
-`curl -v -u "${hostname}:${token}" "${BASE_URL}/nic/update?hostname=${fqdn}"`);
+`curl -v --max-time 15 -u "${hostname}:${token}" "${BASE_URL}/nic/update?hostname=${fqdn}"`);
 
     setText('mac-code',
-`*/5 * * * * curl -s -u "${hostname}:${token}" "${BASE_URL}/nic/update?hostname=${fqdn}" >/dev/null 2>&1`);
+`*/5 * * * * curl -s --max-time 15 -u "${hostname}:${token}" "${BASE_URL}/nic/update?hostname=${fqdn}" >/dev/null 2>&1`);
 
     document.getElementById('config-overlay').classList.add('open');
   }
@@ -1051,9 +1676,19 @@ try {
     });
   }
 
+  // Закрытие по клику вне окна. Считаем только то нажатие, которое НАЧАЛОСЬ
+  // на подложке: иначе выделение текста с уходом курсора за пределы окна
+  // закрывает модалку (mousedown был внутри, mouseup — на подложке, и браузер
+  // присылает click подложке).
   document.querySelectorAll('.modal-overlay').forEach(overlay => {
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) closeModals();
+    let downOnOverlay = false;
+    overlay.addEventListener('pointerdown', (e) => {
+      downOnOverlay = (e.target === overlay && e.button === 0);
+    });
+    overlay.addEventListener('pointerup', (e) => {
+      const shouldClose = downOnOverlay && e.target === overlay && e.button === 0;
+      downOnOverlay = false;
+      if (shouldClose) closeModals();
     });
   });
 
@@ -1103,6 +1738,186 @@ try {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeModals();
   });
+
+  // The flash message above (if any) came from a ?msg=/?error= query
+  // param the server just rendered. Clean it out of the address bar
+  // now so a manual page refresh doesn't resend the same URL and show
+  // it again.
+  if (window.location.search) {
+    history.replaceState(null, '', window.location.pathname);
+  }
+
+  // ---------- Auto-refresh ----------
+  const AUTOUPDATE_KEY = 'ddns_autoupdate';
+  let autoupdateTimer = null;
+
+  function loadAutoupdateState(){
+    try {
+      const raw = localStorage.getItem(AUTOUPDATE_KEY);
+      if (!raw) return { enabled: false, interval: 5 };
+      const parsed = JSON.parse(raw);
+      return {
+        enabled: !!parsed.enabled,
+        interval: parsed.interval || 5
+      };
+    } catch (e) {
+      return { enabled: false, interval: 5 };
+    }
+  }
+
+  function saveAutoupdateState(state){
+    try {
+      localStorage.setItem(AUTOUPDATE_KEY, JSON.stringify(state));
+    } catch (e) { /* localStorage unavailable — auto-refresh just won't persist */ }
+  }
+
+  function applyAutoupdateState(state){
+    const toggleBtn = document.getElementById('autoupdate-toggle');
+    const divider = document.getElementById('autoupdate-divider');
+    const selectWrap = document.getElementById('autoupdate-select-wrap');
+    const select = document.getElementById('autoupdate-interval');
+
+    select.value = String(state.interval);
+    toggleBtn.classList.toggle('active', state.enabled);
+    divider.classList.toggle('visible', state.enabled);
+    selectWrap.classList.toggle('visible', state.enabled);
+
+    if (autoupdateTimer) {
+      clearInterval(autoupdateTimer);
+      autoupdateTimer = null;
+    }
+
+    if (state.enabled) {
+      autoupdateTimer = setInterval(() => {
+        window.location.reload();
+      }, state.interval * 60 * 1000);
+    }
+  }
+
+  function toggleAutoupdate(){
+    const state = loadAutoupdateState();
+    state.enabled = !state.enabled;
+    saveAutoupdateState(state);
+    applyAutoupdateState(state);
+  }
+
+  function changeAutoupdateInterval(value){
+    const state = loadAutoupdateState();
+    state.interval = parseInt(value, 10) || 5;
+    saveAutoupdateState(state);
+    applyAutoupdateState(state);
+    document.getElementById('autoupdate-interval').blur();
+  }
+
+  applyAutoupdateState(loadAutoupdateState());
+
+  // ---------- Theme ----------
+  const THEME_COLORS = { dark: '#0e1420', light: '#f3f5fa' };
+
+  function setTheme(theme){
+    document.documentElement.setAttribute('data-theme', theme);
+    try { localStorage.setItem('ddns_theme', theme); } catch (e) { /* not persisted, still applies this session */ }
+    updateThemeButtons(theme);
+    updateThemeColorMeta(theme);
+  }
+
+  function updateThemeButtons(theme){
+    document.querySelectorAll('.theme-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.themeChoice === theme);
+    });
+  }
+
+  function updateThemeColorMeta(theme){
+    const meta = document.getElementById('meta-theme-color');
+    if (meta) meta.setAttribute('content', THEME_COLORS[theme] || THEME_COLORS.dark);
+  }
+
+  const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+  updateThemeButtons(currentTheme);
+  updateThemeColorMeta(currentTheme);
+
+  // ---------- Settings forms: Save stays disabled until filled ----------
+  function wireSettingsFormValidation(){
+    document.querySelectorAll('#settings-overlay form').forEach(form => {
+      const submitBtn = form.querySelector('button[type="submit"]');
+      const requiredInputs = form.querySelectorAll('input[required]');
+      if (!submitBtn || requiredInputs.length === 0) return;
+
+      const check = () => {
+        let allFilled = true;
+        requiredInputs.forEach(input => {
+          if (!input.value.trim()) allFilled = false;
+        });
+        submitBtn.disabled = !allFilled;
+      };
+
+      requiredInputs.forEach(input => input.addEventListener('input', check));
+      check();
+    });
+  }
+
+  wireSettingsFormValidation();
+
+  // ---------- Pull-to-refresh (iOS standalone "Add to Home Screen" only) ----------
+  // Safari's own pull-to-refresh only exists in a regular browser tab —
+  // standalone home-screen apps run in a bare WKWebView with no such
+  // gesture at all. This rebuilds a simple version of it by hand.
+  if (window.navigator.standalone === true) {
+    (function(){
+      let touchStartY = 0;
+      let pulling = false;
+      const threshold = 70;
+
+      const indicator = document.createElement('div');
+      indicator.style.cssText = [
+        'position:fixed', 'top:env(safe-area-inset-top, 0px)', 'left:0', 'right:0',
+        'display:flex', 'align-items:center', 'justify-content:center',
+        'height:0', 'overflow:hidden',
+        'transition:height .15s ease',
+        'z-index:9999',
+        'color:var(--accent)',
+        'font-family:var(--sans)',
+        'font-size:12px',
+        'font-weight:600',
+        'pointer-events:none'
+      ].join(';');
+      indicator.textContent = 'Потяни ещё, чтобы обновить';
+      document.body.appendChild(indicator);
+
+      document.addEventListener('touchstart', (e) => {
+        const modalOpen = document.querySelector('.modal-overlay.open');
+        if (modalOpen || window.scrollY > 0) {
+          pulling = false;
+          return;
+        }
+        touchStartY = e.touches[0].clientY;
+        pulling = true;
+      }, { passive: true });
+
+      document.addEventListener('touchmove', (e) => {
+        if (!pulling) return;
+        const delta = e.touches[0].clientY - touchStartY;
+        if (delta > 0) {
+          indicator.style.height = Math.min(delta * 0.4, 56) + 'px';
+        }
+      }, { passive: true });
+
+      document.addEventListener('touchend', () => {
+        if (!pulling) return;
+        pulling = false;
+        const height = parseInt(indicator.style.height || '0', 10);
+        indicator.style.height = '0px';
+        if (height >= threshold * 0.4) {
+          window.location.reload();
+        }
+      }, { passive: true });
+    })();
+  }
+
+  // после сохранения или удаления сервер возвращает ?sys=1 — открываем окно сразу
+  if (new URLSearchParams(window.location.search).get('sys') === '1') {
+    openSystem();
+  }
 </script>
 
 </body>

@@ -7,7 +7,7 @@ import ipaddress
 import logging
 import json
 from collections import defaultdict
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote_plus
 from datetime import datetime, timezone
 
 import psycopg2
@@ -23,15 +23,12 @@ from fastapi import (
     Form,
 )
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 
 
 app = FastAPI(
     title="Buten DDNS API"
 )
-
-security = HTTPBasic()
 
 ADMIN_USER = os.getenv(
     "ADMIN_USER",
@@ -108,39 +105,69 @@ def ensure_admin_table():
         conn.close()
 
 
-def admin_auth(
-    request: Request,
-    credentials: HTTPBasicCredentials = Depends(security)
-):
+# ---------- Session-cookie auth ----------
+# Plain HTTP Basic Auth used to be used here, but it has real problems on
+# iOS "Add to Home Screen" apps specifically: the native credential
+# prompt can't be styled at all, isn't saved to Keychain, doesn't offer
+# autofill, and the cached credentials get dropped whenever the app is
+# purged from memory — meaning the login prompt reappears constantly.
+# A real login form + a normal session cookie fixes all of that: iOS
+# treats it like any other website login (offers to save/autofill it),
+# and the cookie persists in WebKit's cookie jar across app restarts.
+#
+# Sessions are opaque random tokens kept in memory (not a signed JWT —
+# no secret key to manage, and losing sessions on a server restart just
+# means everyone logs in again, which is a fine trade-off here). A
+# server restart invalidates all sessions; a client-side app relaunch
+# does not, since the cookie itself is what's evaluated here, not any
+# in-app state.
 
-    client_ip = get_client_ip(request)
-    check_rate_limit("admin", client_ip)
+SESSION_COOKIE_NAME = "ddns_session"
+SESSION_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
 
-    stored = get_stored_admin_credentials()
+_sessions = {}  # token -> (username, expires_at)
 
-    if stored:
-        db_user, db_hash = stored
-        ok = (
-            secrets.compare_digest(credentials.username, db_user)
-            and verify_password(credentials.password, db_hash)
-        )
-    else:
-        ok = (
-            secrets.compare_digest(credentials.username, ADMIN_USER)
-            and secrets.compare_digest(credentials.password, ADMIN_PASSWORD)
-        )
 
-    if not ok:
+def create_session(username: str) -> str:
+    token = secrets.token_urlsafe(32)
+    _sessions[token] = (username, time.time() + SESSION_MAX_AGE)
+    return token
 
-        record_failure("admin", client_ip)
 
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid credentials",
-            headers={
-                "WWW-Authenticate": "Basic"
-            }
-        )
+def get_session_username(token: str):
+    entry = _sessions.get(token)
+
+    if not entry:
+        return None
+
+    username, expires_at = entry
+
+    if time.time() > expires_at:
+        _sessions.pop(token, None)
+        return None
+
+    return username
+
+
+def destroy_session(token: str):
+    _sessions.pop(token, None)
+
+
+class NotAuthenticated(Exception):
+    pass
+
+
+@app.exception_handler(NotAuthenticated)
+def handle_not_authenticated(request: Request, exc: NotAuthenticated):
+    return RedirectResponse("/login", status_code=303)
+
+
+def admin_auth(request: Request):
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    username = get_session_username(token) if token else None
+
+    if not username:
+        raise NotAuthenticated()
 
     return True
 
@@ -150,16 +177,31 @@ templates = Jinja2Templates(
 )
 
 PDNS_API = os.getenv("PDNS_API_URL", "http://powerdns:8081")
-PDNS_KEY = os.getenv("PDNS_API_KEY", "changeme")
+# Секретов в коде быть не должно: значения приходят только из .env.
+PDNS_KEY = os.getenv("PDNS_API_KEY", "")
 
-ZONE = os.getenv("DDNS_ZONE", "example.com")
+ZONE = os.getenv("DDNS_ZONE", "buten-ko.ru")
 
 DB = {
     "host": os.getenv("DB_HOST", "postgres"),
     "database": os.getenv("DB_NAME", "powerdns"),
     "user": os.getenv("DB_USER", "pdns"),
-    "password": os.getenv("DB_PASSWORD", "changeme")
+    "password": os.getenv("DB_PASSWORD", "")
 }
+
+# Без секретов приложение не стартует: лучше упасть сразу и с понятным текстом,
+# чем молча работать с паролем по умолчанию, который лежит в открытом репозитории.
+_missing = [
+    name for name, value in (
+        ("PDNS_API_KEY", PDNS_KEY),
+        ("DB_PASSWORD", DB["password"]),
+    ) if not value
+]
+if _missing:
+    raise RuntimeError(
+        "Не заданы обязательные переменные окружения: " + ", ".join(_missing)
+        + ". Проверь .env и docker-compose.yml."
+    )
 
 # Scheme to assume when a reverse proxy doesn't forward X-Forwarded-Proto.
 # Almost every real deployment sits behind TLS, so default to https.
@@ -331,16 +373,19 @@ auth_logger.addHandler(_auth_log_handler)
 
 
 def check_rate_limit(kind: str, ip: str):
-    now = time.time()
-    key = f"{kind}:{ip}"
-    attempts = _failed_attempts[key]
-    attempts[:] = [t for t in attempts if now - t < RATE_LIMIT_WINDOW]
-
-    if len(attempts) >= RATE_LIMIT_MAX:
+    if is_rate_limited(kind, ip):
         raise HTTPException(
             status_code=429,
             detail="Too many attempts, try again later"
         )
+
+
+def is_rate_limited(kind: str, ip: str) -> bool:
+    now = time.time()
+    key = f"{kind}:{ip}"
+    attempts = _failed_attempts[key]
+    attempts[:] = [t for t in attempts if now - t < RATE_LIMIT_WINDOW]
+    return len(attempts) >= RATE_LIMIT_MAX
 
 
 def record_failure(kind: str, ip: str):
@@ -612,6 +657,143 @@ def update_dns_record(hostname: str, ip: str):
     return fqdn
 
 
+SYSTEM_RECORD_TYPES = ["A", "AAAA", "CNAME", "TXT", "MX"]
+
+# Эти записи держат зону: NS и SOA в апексе. Их нельзя менять из панели —
+# ошибка здесь означает, что домен перестанет резолвиться вообще.
+SYSTEM_PROTECTED_KEYS = {("@", "NS"), ("@", "SOA")}
+
+
+def short_from_fqdn(name: str) -> str:
+    """buten-ko.ru. -> @ ; ddns.buten-ko.ru -> ddns (как показывает reg.ru)."""
+    name = (name or "").strip().rstrip(".").lower()
+    zone = ZONE.rstrip(".").lower()
+    if name == zone:
+        return "@"
+    if name.endswith("." + zone):
+        return name[: -len(zone) - 1]
+    return name
+
+
+def fqdn_from_short(short: str) -> str:
+    short = (short or "").strip().rstrip(".").lower()
+    if short in ("", "@"):
+        return ZONE.rstrip(".") + "."
+    return f"{short}.{ZONE.rstrip('.')}."
+
+
+def load_system_records():
+    """
+    Все записи зоны, которыми DDNS не управляет: NS и SOA в апексе, статические
+    A (ns1, ns2, ddns, status), TXT и прочее. Возвращает короткие имена и
+    признаки «защищена» и «несколько значений».
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT r.name, r.type, r.content, r.ttl, r.prio
+        FROM records r
+        JOIN domains d ON d.id = r.domain_id
+        WHERE d.name = %s
+          AND r.name NOT IN (SELECT hostname || '.' || %s FROM ddns_clients)
+        ORDER BY r.name, r.type, r.content
+        """,
+        (ZONE, ZONE),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    counts = defaultdict(int)
+    for (name, rtype, _c, _t, _p) in rows:
+        counts[(name.lower(), rtype)] += 1
+
+    out = []
+    for (name, rtype, content, ttl, prio) in rows:
+        short = short_from_fqdn(name)
+        out.append({
+            "name": name,
+            "short": short,
+            "type": rtype,
+            "content": content,
+            "ttl": ttl,
+            "prio": prio,
+            "multi": counts[(name.lower(), rtype)] > 1,
+            "protected": (short, rtype) in SYSTEM_PROTECTED_KEYS,
+        })
+    return out
+
+
+def pdns_apply_rrsets(rrsets):
+    """Одна точка записи в PowerDNS: и создание, и правка, и удаление."""
+    r = requests.patch(
+        f"{PDNS_API}/api/v1/servers/localhost/zones/{ZONE}.",
+        headers={"X-API-Key": PDNS_KEY, "Content-Type": "application/json"},
+        json={"rrsets": rrsets},
+        timeout=10,
+    )
+    if r.status_code not in (200, 204):
+        raise HTTPException(status_code=500, detail=r.text)
+
+
+def system_record_error(msg: str):
+    return RedirectResponse("/admin?sys=1&error=" + quote_plus(msg), status_code=303)
+
+
+def system_record_ok(msg: str):
+    return RedirectResponse("/admin?sys=1&msg=" + quote_plus(msg), status_code=303)
+
+
+def validate_system_record(short: str, rtype: str, content: str, ttl: int, prio: str):
+    """Возвращает (нормализованное содержимое, ошибка или None)."""
+    short = (short or "").strip().rstrip(".").lower()
+
+    if short and short != "@":
+        for label in short.split("."):
+            if not label or len(label) > 63 or not re.fullmatch(r"[a-z0-9_]([a-z0-9_-]*[a-z0-9])?", label):
+                return None, "Имя записи: только латиница, цифры и дефис, без пробелов."
+
+    if rtype not in SYSTEM_RECORD_TYPES:
+        return None, "Такой тип записи панель не поддерживает."
+
+    if ttl < 60 or ttl > 604800:
+        return None, "TTL должен быть от 60 до 604800 секунд."
+
+    content = content.strip()
+    if not content:
+        return None, "Значение записи не заполнено."
+
+    if rtype == "A":
+        if not is_valid_ip(content):
+            return None, "Для A нужен корректный IPv4-адрес."
+    elif rtype == "AAAA":
+        try:
+            ipaddress.IPv6Address(content)
+        except ValueError:
+            return None, "Для AAAA нужен корректный IPv6-адрес."
+    elif rtype == "CNAME":
+        content = content.rstrip(".") + "."
+        if not re.fullmatch(r"[a-z0-9_.-]+", content.lower()):
+            return None, "Для CNAME нужно доменное имя."
+    elif rtype == "MX":
+        host = content.rstrip(".") + "."
+        if not re.fullmatch(r"[a-z0-9_.-]+", host.lower()):
+            return None, "Для MX нужно доменное имя почтового сервера."
+        try:
+            p = int(prio) if str(prio).strip() else 10
+        except ValueError:
+            return None, "Приоритет MX должен быть числом."
+        if p < 0 or p > 65535:
+            return None, "Приоритет MX — от 0 до 65535."
+        content = f"{p} {host}"
+    elif rtype == "TXT":
+        content = content.replace('"', '')
+        content = f'"{content}"'
+
+    return content, None
+
+
 @app.get("/")
 def root():
 
@@ -704,6 +886,96 @@ def update(
 
         conn.close()
 
+
+@app.get("/login")
+def login_page(
+    request: Request,
+    error: str = None
+):
+
+    # Already logged in — no reason to show the form again.
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    if token and get_session_username(token):
+        return RedirectResponse("/admin", status_code=303)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="login.html",
+        context={
+            "zone": ZONE,
+            "error": error,
+        }
+    )
+
+
+@app.post("/login")
+def login_submit(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...)
+):
+
+    client_ip = get_client_ip(request)
+
+    if is_rate_limited("admin", client_ip):
+        return RedirectResponse(
+            "/login?error=Too+many+attempts%2C+try+again+later",
+            status_code=303
+        )
+
+    stored = get_stored_admin_credentials()
+
+    if stored:
+        db_user, db_hash = stored
+        ok = (
+            secrets.compare_digest(username, db_user)
+            and verify_password(password, db_hash)
+        )
+    else:
+        ok = (
+            secrets.compare_digest(username, ADMIN_USER)
+            and secrets.compare_digest(password, ADMIN_PASSWORD)
+        )
+
+    if not ok:
+        record_failure("admin", client_ip)
+        return RedirectResponse(
+            "/login?error=Invalid+username+or+password",
+            status_code=303
+        )
+
+    token = create_session(username)
+
+    response = RedirectResponse("/admin", status_code=303)
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        token,
+        max_age=SESSION_MAX_AGE,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+    )
+
+    return response
+
+
+@app.post("/logout")
+def logout(
+    request: Request,
+    csrf: bool = Depends(verify_same_origin)
+):
+
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+
+    if token:
+        destroy_session(token)
+
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie(SESSION_COOKIE_NAME)
+
+    return response
+
+
 @app.get("/admin")
 def admin(
     request: Request,
@@ -783,12 +1055,15 @@ def admin(
     admin_username = stored_creds[0] if stored_creds else ADMIN_USER
 
     banned_ips = read_banned_ips()
+    system_records = load_system_records()
 
     return templates.TemplateResponse(
         request=request,
         name="admin.html",
         context={
             "clients": clients,
+            "system_records": system_records,
+            "record_types": SYSTEM_RECORD_TYPES,
             "stats": stats,
             "zone": ZONE,
             "base_url": get_base_url(request),
@@ -904,6 +1179,15 @@ def edit_client(
     conn = get_db()
     cur = conn.cursor()
 
+    # Старое имя нужно знать ДО обновления: если хост переименовали, запись
+    # под прежним именем останется в зоне навсегда и будет указывать в никуда.
+    cur.execute(
+        "SELECT hostname, host(last_ip) FROM ddns_clients WHERE id=%s",
+        (client_id,)
+    )
+    row = cur.fetchone()
+    old_hostname, last_ip = row if row else (None, None)
+
     try:
 
         cur.execute(
@@ -936,6 +1220,41 @@ def edit_client(
 
         cur.close()
         conn.close()
+
+    # Переименование: сносим запись под старым именем и сразу заводим новую
+    # с последним известным IP, чтобы не ждать следующего обновления от роутера.
+    if old_hostname and old_hostname != hostname:
+
+        dns_failed = False
+
+        try:
+            pdns_apply_rrsets([{
+                "name": make_fqdn(old_hostname),
+                "type": "A",
+                "changetype": "DELETE",
+                "records": [],
+            }])
+        except Exception:
+            dns_failed = True
+
+        if last_ip:
+            try:
+                update_dns_record(hostname, last_ip)
+            except Exception:
+                dns_failed = True
+
+        if dns_failed:
+            return RedirectResponse(
+                "/admin?error=" + quote_plus(
+                    "Хост переименован, но зону обновить не удалось — проверь PowerDNS"
+                ),
+                status_code=303
+            )
+
+        return RedirectResponse(
+            "/admin?msg=" + quote_plus(f"Хост переименован: {old_hostname} → {hostname}"),
+            status_code=303
+        )
 
     return RedirectResponse(
         "/admin?msg=Changes+saved",
@@ -991,6 +1310,13 @@ def delete_client(
     conn = get_db()
     cur = conn.cursor()
 
+    cur.execute(
+        "SELECT hostname FROM ddns_clients WHERE id=%s",
+        (client_id,)
+    )
+    row = cur.fetchone()
+    hostname = row[0] if row else None
+
     try:
 
         cur.execute(
@@ -1008,8 +1334,26 @@ def delete_client(
         cur.close()
         conn.close()
 
+    # Удалённый хост не должен оставлять запись в зоне: иначе его имя навсегда
+    # указывает на старый IP (а имя могут занять заново).
+    if hostname:
+        try:
+            pdns_apply_rrsets([{
+                "name": make_fqdn(hostname),
+                "type": "A",
+                "changetype": "DELETE",
+                "records": [],
+            }])
+        except Exception:
+            return RedirectResponse(
+                "/admin?error=" + quote_plus(
+                    "Хост удалён, но запись в зоне убрать не удалось — проверь PowerDNS"
+                ),
+                status_code=303
+            )
+
     return RedirectResponse(
-        "/admin?msg=Host+deleted",
+        "/admin?msg=" + quote_plus("Хост удалён, запись из зоны убрана"),
         status_code=303
     )
 
@@ -1049,6 +1393,127 @@ def export_banned_ips(
             "Content-Disposition": "attachment; filename=banned-ips.txt"
         }
     )
+
+
+@app.get("/admin/system-records")
+def system_records(auth: bool = Depends(admin_auth)):
+    """
+    Записи зоны, которыми DDNS не управляет: NS и SOA в апексе, статические A
+    (ns1, ns2, ddns, status и прочие), TXT, MX. Нужны, чтобы в панели была
+    видна вся зона, а не только хосты из ddns_clients.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT r.name, r.type, r.content, r.ttl, r.prio
+        FROM records r
+        JOIN domains d ON d.id = r.domain_id
+        WHERE d.name = %s
+          AND r.name NOT IN (
+              SELECT hostname || '.' || %s FROM ddns_clients
+          )
+        ORDER BY r.name, r.type, r.content
+        """,
+        (ZONE, ZONE),
+    )
+
+    records = [
+        {
+            "name": name,
+            "type": rtype,
+            "content": content,
+            "ttl": ttl,
+            "prio": prio,
+        }
+        for (name, rtype, content, ttl, prio) in cur.fetchall()
+    ]
+
+    cur.close()
+    conn.close()
+
+    for rec in records:
+        rec["short"] = short_from_fqdn(rec["name"])
+
+    return {"zone": ZONE, "count": len(records), "records": records}
+
+
+@app.post("/admin/system-records/save")
+def system_record_save(
+    name: str = Form(""),
+    rtype: str = Form(...),
+    content: str = Form(...),
+    ttl: int = Form(3600),
+    prio: str = Form(""),
+    orig_name: str = Form(""),
+    orig_type: str = Form(""),
+    auth: bool = Depends(admin_auth),
+    csrf: bool = Depends(verify_same_origin)
+):
+    short = (name or "").strip().rstrip(".").lower()
+    rtype = (rtype or "").strip().upper()
+
+    if (short, rtype) in SYSTEM_PROTECTED_KEYS or (short, rtype) in (
+        ("@", "SOA"), ("@", "NS")
+    ):
+        return system_record_error("Записи NS и SOA в апексе панель не меняет — это опора зоны.")
+
+    fixed, err = validate_system_record(short, rtype, content, ttl, prio)
+    if err:
+        return system_record_error(err)
+
+    fqdn = fqdn_from_short(short)
+
+    # Править можно только запись с единственным значением: REPLACE затирает
+    # весь набор, а потерять вторую NS-запись или второй MX нельзя.
+    existing = [r for r in load_system_records() if r["name"].lower() == fqdn.rstrip(".") and r["type"] == rtype]
+    if existing and len(existing) > 1:
+        return system_record_error("У этой записи несколько значений — правка из панели отключена.")
+
+    if orig_name and orig_type:
+        old_fqdn = fqdn_from_short(orig_name)
+        old_type = orig_type.strip().upper()
+        if (old_fqdn, old_type) != (fqdn, rtype):
+            pdns_apply_rrsets([{
+                "name": old_fqdn, "type": old_type,
+                "changetype": "DELETE", "records": [],
+            }])
+
+    pdns_apply_rrsets([{
+        "name": fqdn,
+        "type": rtype,
+        "ttl": int(ttl),
+        "changetype": "REPLACE",
+        "records": [{"content": fixed, "disabled": False}],
+    }])
+
+    return system_record_ok(f"Запись {short or '@'} {rtype} сохранена")
+
+
+@app.post("/admin/system-records/delete")
+def system_record_delete(
+    name: str = Form(...),
+    rtype: str = Form(...),
+    auth: bool = Depends(admin_auth),
+    csrf: bool = Depends(verify_same_origin)
+):
+    short = (name or "").strip().rstrip(".").lower()
+    rtype = (rtype or "").strip().upper()
+
+    if (short, rtype) in (("@", "NS"), ("@", "SOA")):
+        return system_record_error("Записи NS и SOA в апексе удалить нельзя.")
+
+    fqdn = fqdn_from_short(short)
+
+    pdns_apply_rrsets([{
+        "name": fqdn,
+        "type": rtype,
+        "changetype": "DELETE",
+        "records": [],
+    }])
+
+    return system_record_ok(f"Запись {short or '@'} {rtype} удалена")
 
 
 @app.post("/admin/unban")
@@ -1095,13 +1560,12 @@ def change_password(
     new_password: str = Form(""),
     new_password_confirm: str = Form(""),
 
-    credentials: HTTPBasicCredentials = Depends(security),
     auth: bool = Depends(admin_auth),
     csrf: bool = Depends(verify_same_origin)
 ):
 
     # Re-check the *current* password explicitly, so a CSRF'd request that
-    # merely rides along on cached Basic Auth still can't change it blind.
+    # merely rides along on the session cookie still can't change it blind.
     stored = get_stored_admin_credentials()
 
     if stored:
