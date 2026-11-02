@@ -59,10 +59,10 @@ services:
       - ./logs:/app/logs
 
     environment:
-       ADMIN_USER: ${ADMIN_USER:-Ejik}
+       ADMIN_USER: ${ADMIN_USER:-admin}
        ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD не задан в .env}
 
-       DDNS_ZONE: ${DDNS_ZONE:-buten-ko.ru}
+       DDNS_ZONE: ${DDNS_ZONE:?DDNS_ZONE не задан в .env}
 
        PDNS_API_URL: http://powerdns:8081
        PDNS_API_KEY: ${PDNS_API_KEY:?PDNS_API_KEY не задан в .env}

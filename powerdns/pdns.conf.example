@@ -1,10 +1,11 @@
-# Copy this file to pdns.conf and fill in real values before first start:
+# Скопировать в pdns.conf и заполнить перед первым запуском:
 #   cp powerdns/pdns.conf.example powerdns/pdns.conf
 #
-# pdns.conf is a static config file — PowerDNS's official Docker image
-# doesn't read database credentials or the API key from the environment,
-# so the two secrets below have to match your .env file BY HAND. This
-# file itself is gitignored so your real secrets never get committed.
+# pdns.conf — статический файл. Официальный образ PowerDNS не читает из
+# переменных окружения ни пароль БД, ни ключ API (у PDNS_AUTH_API_KEY есть
+# побочный эффект, см. ниже), поэтому два секрета ниже нужно вписать руками —
+# ровно те же значения, что в .env. Сам файл в .gitignore, в репозиторий
+# не попадает.
 
 launch=gpgsql
 
@@ -12,28 +13,31 @@ gpgsql-host=postgres
 gpgsql-port=5432
 gpgsql-dbname=powerdns
 gpgsql-user=pdns
-# Must match DB_PASSWORD in your .env file.
+# Должен совпадать с DB_PASSWORD из .env
 gpgsql-password=CHANGE_ME_MATCH_DB_PASSWORD_IN_ENV
 
 api=yes
-# Intentionally a plain api-key= line here, not sourced from an env var.
-# The official pdns-auth image's PDNS_AUTH_API_KEY mechanism looks cleaner
-# on paper, but it *also* sets webserver-password to the same value as a
-# side effect — which then requires HTTP Basic Auth on top of X-API-Key
-# for API access, breaking plain X-API-Key clients like ddns-api. Keep
-# this as a plain api-key= line instead.
-# Must match PDNS_API_KEY in your .env file.
+# Ключ задан строкой, а не через переменную окружения.
+# PDNS_AUTH_API_KEY выглядит удобнее, но у него есть побочный эффект: образ
+# заодно выставляет webserver-password тем же значением, и тогда API требует
+# HTTP Basic Auth поверх X-API-Key — обычные клиенты вроде ddns-api ломаются.
+# Должен совпадать с PDNS_API_KEY из .env
 api-key=CHANGE_ME_MATCH_PDNS_API_KEY_IN_ENV
 
 webserver=yes
 webserver-address=0.0.0.0
 webserver-port=8081
-# Safe to leave wide open: this port is not published to the host or
-# the internet in docker-compose.yml, only reachable from other
-# containers on the same Docker network.
+# Оставлять открытым безопасно: порт не публикуется наружу в docker-compose.yml
+# и доступен только изнутри docker-сети.
 webserver-allow-from=0.0.0.0/0
 
 local-address=0.0.0.0
 
 #daemon=no
 #guardian=no
+
+# --- Второй нейм-сервер (см. раздел README и каталог ns2/) ---
+# Включается скриптом scripts/enable-axfr.sh, который сам дописывает эти строки.
+# primary=yes
+# allow-axfr-ips=<IP второго NS>
+# also-notify=<IP второго NS>
