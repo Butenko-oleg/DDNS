@@ -1,0 +1,55 @@
+services:
+
+  # dnsdist принимает запросы из интернета и режет флуд.
+  # PowerDNS стоит за ним и наружу не смотрит вовсе.
+  dnsdist:
+    image: powerdns/dnsdist-19:1.9.16
+    container_name: ns2-dnsdist
+    restart: unless-stopped
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+    volumes:
+      - ./dnsdist.conf:/etc/dnsdist/dnsdist.conf:ro
+    depends_on:
+      - powerdns
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    networks:
+      ns2:
+        ipv4_address: 172.29.0.2
+
+  # PowerDNS в режиме secondary: только принимает зону с ns1.
+  # Ни API, ни веб-сервера — наружу ничего не отдаёт.
+  powerdns:
+    image: powerdns/pdns-auth-49:4.9.18
+    container_name: ns2-powerdns
+    restart: unless-stopped
+    volumes:
+      - ./pdns.conf:/etc/powerdns/pdns.conf:ro
+      - ./data:/var/lib/powerdns
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - NET_BIND_SERVICE
+    networks:
+      ns2:
+        ipv4_address: 172.29.0.3
+
+networks:
+  ns2:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.29.0.0/16
