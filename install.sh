@@ -156,7 +156,7 @@ echo "  1) Один сервер — оба нейм-сервера на это�
 echo "  2) Два сервера — эта машина ns1 (основной: админка, база, зона)"
 echo "  3) Два сервера — эта машина ns2 (вторичный: только DNS, забирает зону с ns1)"
 echo
-echo "Если сомневаешься — бери 1: один сервер, второй добавишь позже по схеме 3."
+echo "Если сомневаетесь — выбирайте 1: один сервер, второй можно добавить позже по схеме 3."
 echo
 
 MODE=""
@@ -214,7 +214,7 @@ if [ -z "${SKIP_ENV:-}" ]; then
         info "Сгенерирован пароль админки (покажу в итоговой сводке)."
     fi
 
-    ask_yes_no "Тестируешь локально, без TLS reverse proxy?" n && PUBLIC_SCHEME=http || PUBLIC_SCHEME=https
+    ask_yes_no "Тестируете локально, без TLS reverse proxy?" n && PUBLIC_SCHEME=http || PUBLIC_SCHEME=https
 
     echo
     info "Порты для файервола (сейчас или позже — можно пропустить настройку файервола ниже):"
@@ -324,7 +324,7 @@ done
 if [ "$READY" = 1 ]; then
     ok "PowerDNS готов."
 else
-    warn "PowerDNS не ответил за 60 секунд — проверь: docker compose logs powerdns"
+    warn "PowerDNS не ответил за 60 секунд — проверьте: docker compose logs powerdns"
     warn "Продолжаю всё равно, но настройка зоны ниже может не пройти."
 fi
 
@@ -393,7 +393,7 @@ echo
 if ask_yes_no "Настроить файервол (UFW) сейчас?" y; then
     SSH_PORT="$SSH_PORT" HTTP_PORT="$HTTP_PORT" HTTPS_PORT="$HTTPS_PORT" ./scripts/setup-firewall.sh
 else
-    info "Пропускаю настройку файервола — сделай это позже: ./scripts/setup-firewall.sh"
+    info "Пропускаю настройку файервола — это можно сделать позже: ./scripts/setup-firewall.sh"
 fi
 
 # ---------------------------------------------------------------------
@@ -412,7 +412,7 @@ if ask_yes_no "NS у регистратора уже настроены и ра�
         warn "Не получилось — можно повторить позже: sudo DOMAIN=$ZONE ./scripts/setup-reverse-proxy.sh"
     fi
 else
-    info "Пропускаю — когда делегация распространится, запусти:"
+    info "Пропускаю — когда делегация распространится, запустите:"
     info "  sudo DOMAIN=$ZONE ./scripts/setup-reverse-proxy.sh"
 fi
 
@@ -424,7 +424,7 @@ echo
 if ask_yes_no "Настроить fail2ban для SSH и админ-панели сейчас?" y; then
     SSH_PORT="$SSH_PORT" ./scripts/setup-fail2ban.sh
 else
-    info "Пропускаю — сделай это позже: sudo ./scripts/setup-fail2ban.sh"
+    info "Пропускаю — это можно сделать позже: sudo ./scripts/setup-fail2ban.sh"
 fi
 
 # ---------------------------------------------------------------------
@@ -469,15 +469,15 @@ PowerDNS API-ключ:    $CUR_PDNS_KEY
 
 --- Что нужно сделать ещё руками ---
 
-1. У регистратора домена пропиши нейм-серверы зоны (glue-записи):
+1. У регистратора домена прописываются нейм-серверы зоны (glue-записи):
      $NS1 -> $SERVER_IP
      ${NS2:+$NS2 -> $SERVER_IP}
-   Этот шаг вне твоего сервера, автоматизировать нельзя.
+   Этот шаг вне сервера, автоматизировать его нельзя.
 
 2. $PROXY_LINE
 
 3. Этот файл содержит все секреты открытым текстом.
-   Сохрани куда-то в надёжное место (менеджер паролей) и удали с сервера:
+   Сохраните в надёжное место (менеджер паролей) и удалите с сервера:
      shred -u $SUMMARY_FILE
 EOF
 chmod 600 "$SUMMARY_FILE"

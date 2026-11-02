@@ -157,7 +157,7 @@ if [ "$ENCRYPT" -eq 1 ]; then
     if [ ! -s "$PASS_FILE" ]; then
         umask 077
         openssl rand -base64 32 > "$PASS_FILE"
-        warn "Создан новый пароль шифрования: $PASS_FILE — сохрани его отдельно, без него бэкап не расшифровать"
+        warn "Создан новый пароль шифрования: $PASS_FILE — сохраните его отдельно, без него бэкап не расшифровать"
     fi
     openssl enc -aes-256-cbc -pbkdf2 -salt -in "$ARCHIVE" \
         -pass "file:$PASS_FILE" -out "$BACKUP_DIR/ddns-backup-$STAMP.tar.gz.gpg"

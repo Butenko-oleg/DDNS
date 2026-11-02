@@ -181,7 +181,7 @@ if [ "$MODE" = inplace ]; then
     sleep 5
     RECORDS="$(docker exec buten-postgres psql -U pdns -d powerdns -At -c "SELECT count(*) FROM records;" | tr -d '\r')"
     ok "Восстановлено. Записей DNS: $RECORDS"
-    [ "${RECORDS:-0}" -gt 0 ] || { err "после восстановления 0 записей — проверь логи"; exit 1; }
+    [ "${RECORDS:-0}" -gt 0 ] || { err "после восстановления 0 записей — проверьте логи"; exit 1; }
     docker exec buten-powerdns pdnsutil check-all-zones 2>&1 | tail -3
     exit 0
 fi

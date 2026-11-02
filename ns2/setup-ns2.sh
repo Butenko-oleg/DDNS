@@ -51,7 +51,7 @@ apt-get update -qq
 # Ставим пакеты по отдельности: если в репозитории нет одного (например,
 # docker-compose-v2 в новом выпуске), остальные всё равно должны встать.
 apt-get install -y -qq docker.io ufw fail2ban unattended-upgrades dnsutils curl ca-certificates >/dev/null 2>&1 || \
-    warn "  часть пакетов не установилась — проверь вывод выше"
+    warn "  часть пакетов не установилась — проверьте вывод выше"
 apt-get install -y -qq docker-compose-v2 >/dev/null 2>&1 || true
 
 # На части выпусков пакета docker-compose-v2 может не быть — тогда ставим Docker CE из официального репозитория
@@ -116,7 +116,7 @@ print("no")
 PYX
 )"
     if [ "$COVERED" != "yes" ]; then
-        warn "  текущий адрес $CUR_IP не входит в список — добавил правило, иначе потеряешь доступ"
+        warn "  текущий адрес $CUR_IP не входит в список — добавил правило, иначе можно потерять доступ"
         warn "  после настройки это правило можно убрать: ufw delete allow from $CUR_IP to any port 22 proto tcp"
         add_ssh "$CUR_IP"
     fi
