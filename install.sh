@@ -76,7 +76,103 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# ---------------------------------------------------------------------
+# Установка вторичного сервера (ns2) — отдельная схема
+# ---------------------------------------------------------------------
+
+install_ns2() {
+    bold "=== Установка вторичного нейм-сервера (ns2) ==="
+    echo
+    echo "Эта машина будет только отвечать на DNS-запросы и забирать зону с ns1."
+    echo "Ни админ-панели, ни PostgreSQL, ни базы хостов здесь не будет."
+    echo
+
+    local zone="" ns1_ip="" tsig_name="axfr-ns2" tsig_secret="" ssh_allow="" public_ip="" detected=""
+
+    while [ -z "$zone" ]; do
+        zone=$(ask "Домен/зона, которую обслуживаем" "")
+        [ -n "$zone" ] || warn "Зона обязательна."
+    done
+
+    while [ -z "$ns1_ip" ]; do
+        ns1_ip=$(ask "Публичный IP основного сервера (ns1)" "")
+        [ -n "$ns1_ip" ] || warn "IP обязателен."
+    done
+
+    tsig_name=$(ask "Имя TSIG-ключа" "axfr-ns2")
+
+    while [ -z "$tsig_secret" ]; do
+        tsig_secret=$(ask "Секрет TSIG-ключа (его печатает enable-axfr.sh на ns1)" "")
+        [ -n "$tsig_secret" ] || warn "Без ключа зона не приедет."
+    done
+
+    ssh_allow=$(ask "С каких адресов разрешить SSH (через пробел)" "192.168.88.0/24")
+
+    detected=$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || true)
+    public_ip=$(ask "Публичный IP этого сервера" "$detected")
+
+    echo
+    bold "Проверь введённые данные:"
+    echo "  Зона:        $zone"
+    echo "  ns1 (IP):    $ns1_ip"
+    echo "  TSIG:        $tsig_name"
+    echo "  SSH с:       $ssh_allow"
+    echo "  Мой IP:      ${public_ip:-не указан}"
+    echo
+    ask_yes_no "Всё верно, начать установку?" y || { info "Отменено."; exit 0; }
+
+    cat > ns2/ns2.env << EOF
+ZONE=$zone
+NS1_IP=$ns1_ip
+TSIG_NAME=$tsig_name
+TSIG_SECRET=$tsig_secret
+SSH_ALLOW="$ssh_allow"
+NS2_PUBLIC_IP=$public_ip
+EOF
+    chmod 600 ns2/ns2.env
+    ok "ns2/ns2.env создан."
+
+    echo
+    info "Запускаю установку (Docker, dnsdist, PowerDNS, файрвол, зона)..."
+    bash ns2/setup-ns2.sh
+
+    echo
+    bold "=== Что осталось руками ==="
+    echo "1. Пробросить 53/tcp и 53/udp снаружи на эту машину (роутер, облачный файрвол)."
+    echo "2. В зоне на ns1: A-запись второго NS должна указывать на ${public_ip:-<этот IP>}."
+    echo "3. У регистратора обновить glue-запись второго NS на тот же IP."
+    echo "4. Проверить: dig @${public_ip:-<IP>} $zone SOA"
+    echo
+}
+
+# ---------------------------------------------------------------------
+# Выбор схемы установки
+# ---------------------------------------------------------------------
+
 bold "=== Установка Self-hosted DDNS ==="
+echo
+bold "Схема установки:"
+echo "  1) Один сервер — оба нейм-сервера на этой машине"
+echo "  2) Два сервера — эта машина ns1 (основной: админка, база, зона)"
+echo "  3) Два сервера — эта машина ns2 (вторичный: только DNS, забирает зону с ns1)"
+echo
+echo "Если сомневаешься — бери 1: один сервер, второй добавишь позже по схеме 3."
+echo
+
+MODE=""
+while [ -z "$MODE" ]; do
+    MODE=$(ask "Выбери схему (1/2/3)" "1")
+    case "$MODE" in
+        1|2|3) ;;
+        *) warn "Введи 1, 2 или 3."; MODE="" ;;
+    esac
+done
+
+if [ "$MODE" = "3" ]; then
+    install_ns2
+    exit 0
+fi
+
 echo
 
 # ---------------------------------------------------------------------
@@ -259,11 +355,35 @@ docker compose exec -T powerdns pdnsutil replace-rrset "$ZONE" "$NS1" A "$SERVER
 # a manual cache flush before it works. 300s matches the TTL DDNS
 # records themselves use, so a brief miss self-corrects quickly instead.
 SOA_SERIAL="$(date +%Y%m%d)01"
+# refresh=300: как часто вторичный сервер проверяет изменения. Дефолтные часы
+# означают, что ns2 будет отставать на часы, если NOTIFY не дойдёт.
 docker compose exec -T powerdns pdnsutil replace-rrset "$ZONE" @ SOA \
-    "${NS1}. hostmaster.${ZONE}. ${SOA_SERIAL} 10800 3600 604800 300"
+    "${NS1}. hostmaster.${ZONE}. ${SOA_SERIAL} 300 60 604800 300"
 
 echo
 docker compose exec -T powerdns pdnsutil check-zone "$ZONE" || warn "check-zone нашёл проблемы — см. вывод выше."
+
+# ---------------------------------------------------------------------
+# 5b. Второй NS на отдельной машине — разрешить отдачу зоны
+# ---------------------------------------------------------------------
+
+if [ "$MODE" = "2" ]; then
+    echo
+    info "Второй нейм-сервер будет на другой машине."
+    if ask_yes_no "Разрешить отдачу зоны второму NS сейчас?" y; then
+        NS2_IPS=$(ask "Публичный IP сервера ns2 (несколько — через запятую)" "")
+        if [ -n "$NS2_IPS" ]; then
+            PROJECT_DIR="$SCRIPT_DIR" "$SCRIPT_DIR/scripts/enable-axfr.sh" --peer "$NS2_IPS" --yes
+            echo
+            warn "Секрет TSIG-ключа выше понадобится при установке ns2 (схема 3)."
+            warn "Сохрани его — второй раз он не печатается."
+        else
+            warn "IP не указан. Позже: sudo ./scripts/enable-axfr.sh --peer <IP ns2>"
+        fi
+    else
+        info "Можно позже: sudo ./scripts/enable-axfr.sh --peer <IP ns2>"
+    fi
+fi
 
 # ---------------------------------------------------------------------
 # 6. Файервол (по желанию)
@@ -316,6 +436,12 @@ CUR_ADMIN_PASSWORD=$(grep ^ADMIN_PASSWORD= .env | cut -d= -f2-)
 CUR_DB_PASSWORD=$(grep ^DB_PASSWORD= .env | cut -d= -f2-)
 CUR_PDNS_KEY=$(grep ^PDNS_API_KEY= .env | cut -d= -f2-)
 
+case "$MODE" in
+    1) MODE_TEXT="один сервер (оба NS на этом IP)" ;;
+    2) MODE_TEXT="ns1 из двух, ns2 на отдельной машине" ;;
+    *) MODE_TEXT="не определена" ;;
+esac
+
 if [ "$REVERSE_PROXY_DONE" = 1 ]; then
     PROXY_LINE="Reverse proxy настроен — https://$ZONE уже должен работать."
 else
@@ -334,6 +460,7 @@ cat > "$SUMMARY_FILE" << EOF
 Пароль:               $CUR_ADMIN_PASSWORD
 
 DNS-зона:             $ZONE
+Схема:                $MODE_TEXT
 NS1:                  $NS1 -> $SERVER_IP
 NS2:                  ${NS2:+$NS2 -> $SERVER_IP}
 
