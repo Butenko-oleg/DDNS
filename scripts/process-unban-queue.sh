@@ -16,6 +16,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 QUEUE_FILE="$SCRIPT_DIR/logs/unban-queue.txt"
 
 [ -f "$QUEUE_FILE" ] || exit 0
+
+# Владельца чиним ДО проверки на пустоту: иначе при пустой очереди файл
+# остаётся root-овым, и приложение не может в него записать — кнопка
+# «Разбанить» отдаёт ошибку, а очередь так и не наполняется.
+chown 1000:1000 "$QUEUE_FILE" 2>/dev/null || true
+
 [ -s "$QUEUE_FILE" ] || exit 0
 
 # Atomically claim the current queue so anything the app appends while
